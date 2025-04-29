@@ -1,25 +1,36 @@
 use crossbeam_channel::unbounded;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::calculation_channel::*;
 use crate::modbus_device::*;
+use crate::ui::*;
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
 pub struct ColossalApp {
-    // Example stuff:
     label: String,
 
-    #[serde(skip)] // This how you opt-out of serialization of a field
+    // Device and Calc Channels======================
+    #[serde(skip)]
     modbus_devices: Vec<ModbusDevice>,
-    #[serde(skip)] // This how you opt-out of serialization of a field
+    #[serde(skip)]
     calculation_channels: Vec<CalculationChannel>,
+    // ===============================================
+    // Thread communication channels
+    #[serde(skip)]
+    sender: Sender<Vec<ModbusDevice>>,
+    #[serde(skip)]
+    receiver: Receiver<Vec<ModbusDevice>>,
 
-    #[serde(skip)] // This how you opt-out of serialization of a field
+    // First scan latch===============================
+    #[serde(skip)]
     first_scan: bool,
-    #[serde(skip)] // This how you opt-out of serialization of a field
+    // ===============================================
+    #[serde(skip)]
     value: f32,
 }
 
@@ -27,10 +38,16 @@ impl Default for ColossalApp {
     fn default() -> Self {
         let device = init_mb_tcp_device("127.0.0.1".to_owned(), 5502, "Device_1".to_owned(), 10);
         let calculation_channels = init_channel_list(5);
+
+        // This is just a placeholder for the application startup.
+        // sender and receiver will be overwritten later.
+        let (sender, receiver) = mpsc::channel(16);
         Self {
             // Example stuff:
             modbus_devices: vec![device],
             calculation_channels,
+            sender,
+            receiver,
             first_scan: true,
             label: "Hello World!".to_owned(),
             value: 2.7,
@@ -78,32 +95,76 @@ impl eframe::App for ColossalApp {
 
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // We spawn the polling thread at startup.
         if self.first_scan {
             let devices = self.modbus_devices.clone();
             let calculation_channels = self.calculation_channels.clone();
 
+            let (sender, mut receiver): (Sender<Vec<ModbusDevice>>, Receiver<Vec<ModbusDevice>>) =
+                mpsc::channel(16);
+
+            self.sender = sender;
+            //self.receiver = receiver;
+
             std::thread::spawn(move || {
-                let devices = devices;
+                let mut devices = devices;
                 tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
                     .build()
                     .unwrap()
                     .block_on(async move {
-                        println!("Runtime!");
-
+                        //let mut device = devices[0].clone();
                         loop {
-                            for mut channel in calculation_channels.clone() {
-                                match channel.evaluate(&devices) {
-                                    Ok(_) => {}
-                                    Err(e) => {
-                                        // println!(
-                                        //     "ERROR {e}, Ch:{}, Calc: {}",
-                                        //     channel.name, channel.calculation
-                                        // );
+                            let ctx = devices[0].connect_to_device().await;
+                            match ctx {
+                                Ok(mut ctx) => {
+                                    loop {
+                                        //
+                                        if let Ok(msg) = receiver.try_recv() {
+                                            println!("Thread received a message");
+                                        }
+                                        match devices[0].poll(&mut ctx).await {
+                                            Ok(_) => {
+                                                for channel in &devices[0].channels {
+                                                    println!("{:?}", channel.value);
+                                                }
+                                            }
+                                            Err(e) => {
+                                                println!("{e}");
+                                                break;
+                                            }
+                                        }
+                                        // Evaluate each calculation channel.
+                                        for mut channel in calculation_channels.clone() {
+                                            // Use the reference to devices so we are sure
+                                            // we are working with the updated values from
+                                            // the poll function.
+                                            match channel.evaluate(&devices) {
+                                                Ok(_) => {
+                                                    println!(
+                                                        "Calculation result: {}",
+                                                        channel.value
+                                                    );
+                                                }
+                                                Err(e) => {
+                                                    println!(
+                                                        "ERROR {e}, Ch:{}, Calc: {}",
+                                                        channel.name, channel.calculation
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        std::thread::sleep(Duration::from_millis(1000));
                                     }
                                 }
+                                Err(e) => {
+                                    println!("{e}");
+                                    continue;
+                                }
                             }
-                            std::thread::sleep(Duration::from_millis(1000));
+
+                            // We wait for a while before the next connection attempt.
+                            std::thread::sleep(Duration::from_millis(5000));
                         }
                     });
             });

@@ -24,7 +24,7 @@ impl CalculationChannel {
 
         let mut replace_value = String::new();
 
-        println!("{:?}", matches);
+        //println!("{:?}", matches);
         for m in matches {
             let match_str = format!("{}", m);
             for device in devices {

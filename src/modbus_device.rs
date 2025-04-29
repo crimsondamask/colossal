@@ -3,7 +3,7 @@ use std::{net::SocketAddr, time::Duration};
 use tcp::connect;
 use tokio_modbus::prelude::*;
 
-#[derive(serde::Deserialize, serde::Serialize, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
 pub struct ModbusChannel {
     pub id: usize,
     pub enabled: bool,
@@ -13,14 +13,14 @@ pub struct ModbusChannel {
     pub value: ModbusValue,
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
 pub enum ModbusValue {
     Int(u16),
     Real(f32),
     Bool(bool),
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
 pub enum ModbusChannelType {
     Int,
     Real,
@@ -34,6 +34,7 @@ pub enum ModbusDeviceConfig {
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
+
 pub struct ModbusTcpConfig {
     pub ip: String,
     pub port: usize,
