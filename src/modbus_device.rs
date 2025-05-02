@@ -71,6 +71,19 @@ pub enum ModbusDeviceConfig {
     Serial,
 }
 
+impl Display for ModbusDeviceConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModbusDeviceConfig::Tcp(_) => {
+                write!(f, "Modbus TCP")
+            }
+            ModbusDeviceConfig::Serial => {
+                write!(f, "Modbus Serial")
+            }
+        }
+    }
+}
+
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
 
 pub struct ModbusTcpConfig {

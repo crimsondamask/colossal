@@ -8,7 +8,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::calculation_channel::*;
 use crate::modbus_device::*;
-use crate::ui::*;
+use crate::ui::ModbusDeviceBuffer;
 
 #[derive(serde::Deserialize, serde::Serialize)]
 enum ThreadStatus {
@@ -20,6 +20,9 @@ enum ThreadStatus {
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
 pub struct ColossalApp {
     label: String,
+
+    // Device tabel UI buffer.
+    device_config_ui_buffer: ModbusDeviceBuffer,
 
     // Channels table selected row
     tabel_selected_row: Option<usize>,
@@ -64,6 +67,7 @@ impl Default for ColossalApp {
 
         Self {
             // Example stuff:
+            device_config_ui_buffer: ModbusDeviceBuffer::default(),
             tabel_selected_row: None,
             modbus_devices: vec![device],
             status_bar_frame: Frame::new(),
@@ -144,6 +148,26 @@ impl ColossalApp {
             });
             ui.separator();
 
+            egui::Grid::new("device_config")
+                .num_columns(3)
+                .show(ui, |ui| {
+                    egui::ComboBox::from_label("Device Type:")
+                        .selected_text(format!("{}", self.device_config_ui_buffer.device_type))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.device_config_ui_buffer.device_type,
+                                crate::ModbusDeviceType::Tcp,
+                                "Modbus TCP",
+                            );
+                            ui.selectable_value(
+                                &mut self.device_config_ui_buffer.device_type,
+                                crate::ModbusDeviceType::Serial,
+                                "Modbus Serial",
+                            );
+                        });
+                });
+
+            ui.separator();
             let channels_table_avl_height = 200.0;
 
             // We build the device channels table.
@@ -437,11 +461,9 @@ impl eframe::App for ColossalApp {
                 });
             });
         egui::SidePanel::right("right")
-            .min_width(180.)
+            .min_width(200.)
             .show(ctx, |ui| {
-                if let Some(selected_channel_index) = self.tabel_selected_row {
-                    if let Some(received_data) = &self.received_device_data {}
-                }
+                if let Some(selected_channel_index) = self.tabel_selected_row {}
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
