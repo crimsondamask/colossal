@@ -1,5 +1,6 @@
-use egui::{Color32, CornerRadius, Frame, RichText, TextEdit, Visuals};
+use egui::{Color32, CornerRadius, Frame, Margin, RichText, Sense, Stroke, TextEdit, Visuals};
 use egui_extras::{Column, TableBuilder};
+use egui_phosphor;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -20,6 +21,8 @@ enum ThreadStatus {
 pub struct ColossalApp {
     label: String,
 
+    // Channels table selected row
+    tabel_selected_row: Option<usize>,
     // Holder of the received data from the thread
     received_device_data: Option<ModbusDevice>,
     #[serde(skip)]
@@ -61,6 +64,7 @@ impl Default for ColossalApp {
 
         Self {
             // Example stuff:
+            tabel_selected_row: None,
             modbus_devices: vec![device],
             status_bar_frame: Frame::new(),
             thread_status: String::from("Status: Healthy"),
@@ -96,6 +100,9 @@ impl ColossalApp {
             .or_default()
             .insert(0, "custom_font".to_owned());
 
+        // Adding phosphor font icons
+        //
+        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
         cc.egui_ctx.set_fonts(fonts);
 
         // Setting the theme.
@@ -117,6 +124,112 @@ impl ColossalApp {
         }
 
         Default::default()
+    }
+
+    fn device_channels_table(&mut self, ui: &mut egui::Ui) {
+        let table_frame = Frame {
+            stroke: Stroke::new(1.0, Color32::LIGHT_YELLOW),
+            inner_margin: Margin::symmetric(10, 10),
+            ..Default::default()
+        };
+
+        // Surround the table with a frame
+        table_frame.show(ui, |ui| {
+            ui.vertical_centered_justified(|ui| {
+                // Table title
+                ui.label(format!(
+                    "{} Device Channels",
+                    egui_phosphor::regular::PLUGS_CONNECTED
+                ))
+            });
+            ui.separator();
+
+            let channels_table_avl_height = 200.0;
+
+            // We build the device channels table.
+            let mut device_channels_table = TableBuilder::new(ui)
+                .striped(true)
+                .resizable(false)
+                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                .column(Column::exact(80.))
+                .column(Column::exact(80.))
+                .column(Column::exact(80.))
+                .column(Column::exact(80.))
+                .column(Column::exact(80.))
+                .column(Column::remainder())
+                .vscroll(true)
+                .auto_shrink(false)
+                .min_scrolled_height(0.0)
+                .max_scroll_height(channels_table_avl_height)
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible);
+
+            // The table rows should sense the user clicks for selection.
+            device_channels_table = device_channels_table.sense(Sense::click());
+
+            device_channels_table
+                .header(30.0, |mut header| {
+                    header.col(|ui| {
+                        ui.strong("INDEX");
+                    });
+                    header.col(|ui| {
+                        ui.strong("NAME");
+                    });
+                    header.col(|ui| {
+                        ui.strong("TYPE");
+                    });
+                    header.col(|ui| {
+                        ui.strong("ADDRESS");
+                    });
+                    header.col(|ui| {
+                        ui.strong("VALUE");
+                    });
+                    header.col(|ui| {
+                        ui.strong("DESCRIPTION");
+                    });
+                })
+                .body(|body| {
+                    let row_height = 20.0;
+                    if let Some(received_device_data) = &self.received_device_data {
+                        let num_channel_rows = received_device_data.channels.len();
+
+                        body.rows(row_height, num_channel_rows, |mut row| {
+                            let index = row.index();
+
+                            let device_channel = &received_device_data.channels[index];
+                            if let Some(selected_index) = self.tabel_selected_row {
+                                if selected_index == index {
+                                    row.set_selected(true);
+                                }
+                            }
+
+                            row.col(|ui| {
+                                ui.label(format!("{index}"));
+                            });
+                            // Channel name
+                            row.col(|ui| {
+                                ui.label(format!("{device_channel}"));
+                            });
+                            // Channel type
+                            row.col(|ui| {
+                                ui.label(format!("{}", &device_channel.channel_type));
+                            });
+                            row.col(|ui| {
+                                ui.label(format!("{}", &device_channel.address));
+                            });
+                            row.col(|ui| {
+                                ui.label(format!("{}", &device_channel.value));
+                            });
+                            row.col(|ui| {
+                                ui.label(format!("{}", &device_channel.description));
+                            });
+
+                            if row.response().clicked() {
+                                self.tabel_selected_row = Some(index);
+                            }
+                        });
+                    }
+                });
+        });
     }
 }
 
@@ -189,7 +302,7 @@ impl eframe::App for ColossalApp {
                                             Ok(_) => {
                                                 sender_status_to_main
                                                     .send(ThreadStatus::Healthy(
-                                                        "Healthy".to_owned(),
+                                                        format!("Healthy",),
                                                     ))
                                                     .await
                                                     .unwrap();
@@ -288,8 +401,6 @@ impl eframe::App for ColossalApp {
                         });
                         ui.add_space(16.0);
                     }
-
-                    // egui::widgets::global_theme_preference_buttons(ui);
                 });
             });
 
@@ -302,7 +413,7 @@ impl eframe::App for ColossalApp {
                         ..Default::default()
                     };
 
-                    self.thread_status = msg;
+                    self.thread_status = format!("{} {}", egui_phosphor::regular::HEARTBEAT, msg);
                 }
                 ThreadStatus::Error(e) => {
                     self.status_bar_frame = Frame {
@@ -310,7 +421,7 @@ impl eframe::App for ColossalApp {
 
                         ..Default::default()
                     };
-                    self.thread_status = e;
+                    self.thread_status = format!("{} {}", egui_phosphor::regular::WARNING, e);
                 }
             }
         }
@@ -320,30 +431,28 @@ impl eframe::App for ColossalApp {
             .show(ctx, |ui| {
                 ui.vertical_centered_justified(|ui| {
                     ui.label(
-                        egui::RichText::new(format!("{}", self.thread_status))
+                        egui::RichText::new(format!("{}", self.thread_status,))
                             .color(Color32::WHITE),
                     );
                 });
             });
         egui::SidePanel::right("right")
             .min_width(180.)
-            .show(ctx, |ui| {});
+            .show(ctx, |ui| {
+                if let Some(selected_channel_index) = self.tabel_selected_row {
+                    if let Some(received_data) = &self.received_device_data {}
+                }
+            });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanel's and SidePanel's
 
             // Check for any data coming from the thread.
-            if let Ok(msg) = self.receiver_thread_to_main.try_recv() {
-                self.received_device_data = Some(msg);
+            if let Ok(received_device_data) = self.receiver_thread_to_main.try_recv() {
+                self.received_device_data = Some(received_device_data);
             }
 
-            if let Some(received_device_data) = &self.received_device_data {
-                for channel in &received_device_data.channels {
-                    ui.label(format!("{}: {:?}", channel.name, channel.value));
-                }
-            }
-
-            ui.separator();
+            self.device_channels_table(ui);
         });
     }
 }

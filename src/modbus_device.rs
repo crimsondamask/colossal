@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::{net::SocketAddr, time::Duration};
+use std::{fmt::Display, net::SocketAddr, time::Duration};
 use tcp::connect;
 use tokio_modbus::prelude::*;
 
@@ -8,9 +8,16 @@ pub struct ModbusChannel {
     pub id: usize,
     pub enabled: bool,
     pub name: String,
+    pub description: String,
     pub address: u16,
     pub channel_type: ModbusChannelType,
     pub value: ModbusValue,
+}
+
+impl Display for ModbusChannel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
@@ -20,6 +27,22 @@ pub enum ModbusValue {
     Bool(bool),
 }
 
+impl Display for ModbusValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModbusValue::Int(v) => {
+                write!(f, "{v}")
+            }
+            ModbusValue::Real(v) => {
+                write!(f, "{:.2}", v)
+            }
+            ModbusValue::Bool(v) => {
+                write!(f, "{:?}", v)
+            }
+        }
+    }
+}
+
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
 pub enum ModbusChannelType {
     Int,
@@ -27,6 +50,21 @@ pub enum ModbusChannelType {
     Coil,
 }
 
+impl Display for ModbusChannelType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModbusChannelType::Int => {
+                write!(f, "INT")
+            }
+            ModbusChannelType::Real => {
+                write!(f, "REAL")
+            }
+            ModbusChannelType::Coil => {
+                write!(f, "COIL")
+            }
+        }
+    }
+}
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
 pub enum ModbusDeviceConfig {
     Tcp(ModbusTcpConfig),
@@ -114,6 +152,7 @@ pub fn init_mb_tcp_device(
             id: i,
             enabled: true,
             name: format!("MB{i}"),
+            description: "Modbus channel. No description.".to_owned(),
             address: i as u16 * 2,
             channel_type: ModbusChannelType::Real,
             value: ModbusValue::Real(3.0),
