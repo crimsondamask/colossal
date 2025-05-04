@@ -1,5 +1,4 @@
-use egui::{Color32, CornerRadius, Frame, Margin, RichText, Sense, Stroke, TextEdit, Visuals};
-use egui_extras::{Column, TableBuilder};
+use egui::{Color32, CornerRadius, Frame, Visuals};
 use egui_phosphor;
 use std::sync::Arc;
 use std::time::Duration;
@@ -8,10 +7,11 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::calculation_channel::*;
 use crate::modbus_device::*;
+use crate::ui::ui_panels::*;
 use crate::ui::ModbusDeviceBuffer;
 
 #[derive(serde::Deserialize, serde::Serialize)]
-enum ThreadStatus {
+pub enum ThreadStatus {
     Healthy(String),
     Error(String),
 }
@@ -19,40 +19,40 @@ enum ThreadStatus {
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
 pub struct ColossalApp {
-    label: String,
+    pub label: String,
 
     // Device tabel UI buffer.
-    device_config_ui_buffer: ModbusDeviceBuffer,
+    pub device_config_ui_buffer: ModbusDeviceBuffer,
 
     // Channels table selected row
-    tabel_selected_row: Option<usize>,
+    pub tabel_selected_row: Option<usize>,
     // Holder of the received data from the thread
-    received_device_data: Option<ModbusDevice>,
+    pub received_device_data: Option<ModbusDevice>,
     #[serde(skip)]
-    thread_status: String,
+    pub thread_status: String,
     #[serde(skip)]
-    status_bar_frame: Frame,
+    pub status_bar_frame: Frame,
     // Device and Calc Channels======================
     #[serde(skip)]
-    modbus_devices: Vec<ModbusDevice>,
+    pub modbus_devices: Vec<ModbusDevice>,
     #[serde(skip)]
-    calculation_channels: Vec<CalculationChannel>,
+    pub calculation_channels: Vec<CalculationChannel>,
     // ===============================================
     // Thread communication channels
     #[serde(skip)]
-    sender_main_to_thread: Sender<ModbusDevice>,
+    pub sender_main_to_thread: Sender<ModbusDeviceConfig>,
     #[serde(skip)]
-    receiver_thread_to_main: Receiver<ModbusDevice>,
+    pub receiver_thread_to_main: Receiver<ModbusDevice>,
     // Thread status
     #[serde(skip)]
-    receiver_status_to_main: Receiver<ThreadStatus>,
+    pub receiver_status_to_main: Receiver<ThreadStatus>,
 
     // First scan latch===============================
     #[serde(skip)]
-    first_scan: bool,
+    pub first_scan: bool,
     // ===============================================
     #[serde(skip)]
-    value: f32,
+    pub value: f32,
 }
 
 impl Default for ColossalApp {
@@ -62,7 +62,8 @@ impl Default for ColossalApp {
 
         // This is just a placeholder for the application startup.
         // sender and receiver will be overwritten later.
-        let (sender, receiver) = mpsc::channel(16);
+        let (_sender, receiver) = mpsc::channel(16);
+        let (config_sender, _config_receiver) = mpsc::channel(16);
         let (_, receiver_status) = mpsc::channel(16);
 
         Self {
@@ -74,7 +75,7 @@ impl Default for ColossalApp {
             thread_status: String::from("Status: Healthy"),
             calculation_channels,
             received_device_data: None,
-            sender_main_to_thread: sender,
+            sender_main_to_thread: config_sender,
             receiver_thread_to_main: receiver,
             receiver_status_to_main: receiver_status,
             first_scan: true,
@@ -129,132 +130,6 @@ impl ColossalApp {
 
         Default::default()
     }
-
-    fn device_channels_table(&mut self, ui: &mut egui::Ui) {
-        let table_frame = Frame {
-            stroke: Stroke::new(1.0, Color32::LIGHT_YELLOW),
-            inner_margin: Margin::symmetric(10, 10),
-            ..Default::default()
-        };
-
-        // Surround the table with a frame
-        table_frame.show(ui, |ui| {
-            ui.vertical_centered_justified(|ui| {
-                // Table title
-                ui.label(format!(
-                    "{} Device Channels",
-                    egui_phosphor::regular::PLUGS_CONNECTED
-                ))
-            });
-            ui.separator();
-
-            egui::Grid::new("device_config")
-                .num_columns(3)
-                .show(ui, |ui| {
-                    egui::ComboBox::from_label("Device Type:")
-                        .selected_text(format!("{}", self.device_config_ui_buffer.device_type))
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.device_config_ui_buffer.device_type,
-                                crate::ModbusDeviceType::Tcp,
-                                "Modbus TCP",
-                            );
-                            ui.selectable_value(
-                                &mut self.device_config_ui_buffer.device_type,
-                                crate::ModbusDeviceType::Serial,
-                                "Modbus Serial",
-                            );
-                        });
-                });
-
-            ui.separator();
-            let channels_table_avl_height = 200.0;
-
-            // We build the device channels table.
-            let mut device_channels_table = TableBuilder::new(ui)
-                .striped(true)
-                .resizable(false)
-                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                .column(Column::exact(80.))
-                .column(Column::exact(80.))
-                .column(Column::exact(80.))
-                .column(Column::exact(80.))
-                .column(Column::exact(80.))
-                .column(Column::remainder())
-                .vscroll(true)
-                .auto_shrink(false)
-                .min_scrolled_height(0.0)
-                .max_scroll_height(channels_table_avl_height)
-                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible);
-
-            // The table rows should sense the user clicks for selection.
-            device_channels_table = device_channels_table.sense(Sense::click());
-
-            device_channels_table
-                .header(30.0, |mut header| {
-                    header.col(|ui| {
-                        ui.strong("INDEX");
-                    });
-                    header.col(|ui| {
-                        ui.strong("NAME");
-                    });
-                    header.col(|ui| {
-                        ui.strong("TYPE");
-                    });
-                    header.col(|ui| {
-                        ui.strong("ADDRESS");
-                    });
-                    header.col(|ui| {
-                        ui.strong("VALUE");
-                    });
-                    header.col(|ui| {
-                        ui.strong("DESCRIPTION");
-                    });
-                })
-                .body(|body| {
-                    let row_height = 20.0;
-                    if let Some(received_device_data) = &self.received_device_data {
-                        let num_channel_rows = received_device_data.channels.len();
-
-                        body.rows(row_height, num_channel_rows, |mut row| {
-                            let index = row.index();
-
-                            let device_channel = &received_device_data.channels[index];
-                            if let Some(selected_index) = self.tabel_selected_row {
-                                if selected_index == index {
-                                    row.set_selected(true);
-                                }
-                            }
-
-                            row.col(|ui| {
-                                ui.label(format!("{index}"));
-                            });
-                            // Channel name
-                            row.col(|ui| {
-                                ui.label(format!("{device_channel}"));
-                            });
-                            // Channel type
-                            row.col(|ui| {
-                                ui.label(format!("{}", &device_channel.channel_type));
-                            });
-                            row.col(|ui| {
-                                ui.label(format!("{}", &device_channel.address));
-                            });
-                            row.col(|ui| {
-                                ui.label(format!("{}", &device_channel.value));
-                            });
-                            row.col(|ui| {
-                                ui.label(format!("{}", &device_channel.description));
-                            });
-
-                            if row.response().clicked() {
-                                self.tabel_selected_row = Some(index);
-                            }
-                        });
-                    }
-                });
-        });
-    }
 }
 
 impl eframe::App for ColossalApp {
@@ -276,9 +151,9 @@ impl eframe::App for ColossalApp {
             // Configuration update channel.
             // We send it from the GUI main to the thread
             // in case of configuration changes.
-            let (sender_main_to_thread, mut receiver_main_to_thread): (
-                Sender<ModbusDevice>,
-                Receiver<ModbusDevice>,
+            let (sender_main_to_thread, receiver_main_to_thread): (
+                Sender<ModbusDeviceConfig>,
+                Receiver<ModbusDeviceConfig>,
             ) = mpsc::channel(16);
 
             // Data polling channel. This is the main channel
@@ -299,107 +174,26 @@ impl eframe::App for ColossalApp {
             self.receiver_thread_to_main = receiver_thread_to_main;
             self.receiver_status_to_main = receiver_status_to_main;
 
+            // We spawn a thread to keep polling the device
+            // The thread will stay alive for the entirety
+            // of the app lifetime and will try to reconnect the
+            // device
             std::thread::spawn(move || {
-                let mut devices = devices;
+                let devices = devices;
                 tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
                     .build()
                     .unwrap()
                     .block_on(async move {
                         //let mut device = devices[0].clone();
-                        loop {
-                            let ctx = devices[0].connect_to_device().await;
-                            match ctx {
-                                Ok(mut ctx) => {
-                                    loop {
-                                        //
-                                        if let Ok(msg) = receiver_main_to_thread.try_recv() {
-                                            sender_status_to_main
-                                                .send(ThreadStatus::Healthy(
-                                                    "Config update.".to_owned(),
-                                                ))
-                                                .await
-                                                .unwrap();
-                                            println!("Thread received a message");
-                                        }
-                                        match devices[0].poll(&mut ctx).await {
-                                            Ok(_) => {
-                                                sender_status_to_main
-                                                    .send(ThreadStatus::Healthy(
-                                                        format!("Healthy",),
-                                                    ))
-                                                    .await
-                                                    .unwrap();
-                                                match sender_thread_to_main
-                                                    .send(devices[0].clone())
-                                                    .await
-                                                {
-                                                    Ok(_) => {}
-                                                    Err(e) => {
-                                                        println!("Sender error: {e}");
-                                                        sender_status_to_main
-                                                            .send(ThreadStatus::Error(
-                                                                "Could not send data back to main."
-                                                                    .to_owned(),
-                                                            ))
-                                                            .await
-                                                            .unwrap();
-                                                    }
-                                                }
-                                                for channel in &devices[0].channels {
-                                                    println!("{:?}", channel.value);
-                                                }
-                                            }
-                                            Err(e) => {
-                                                println!("{e}");
-                                                sender_status_to_main
-                                                    .send(ThreadStatus::Error(format!(
-                                                        "Poll error: {e}"
-                                                    )))
-                                                    .await
-                                                    .unwrap();
-
-                                                break;
-                                            }
-                                        }
-                                        // Evaluate each calculation channel.
-                                        for mut channel in calculation_channels.clone() {
-                                            // Use the reference to devices so we are sure
-                                            // we are working with the updated values from
-                                            // the poll function.
-                                            match channel.evaluate(&devices) {
-                                                Ok(_) => {
-                                                    println!(
-                                                        "Calculation result: {}",
-                                                        channel.value
-                                                    );
-                                                }
-                                                Err(e) => {
-                                                    sender_status_to_main
-                                                        .send(ThreadStatus::Error(format!(
-                                                            "Calculation evaluation error: {e}"
-                                                        )))
-                                                        .await
-                                                        .unwrap();
-                                                }
-                                            }
-                                        }
-                                        std::thread::sleep(Duration::from_millis(1000));
-                                    }
-                                }
-                                Err(e) => {
-                                    sender_status_to_main
-                                        .send(ThreadStatus::Error(format!("{e}")))
-                                        .await
-                                        .unwrap();
-                                    println!("{e}");
-                                    continue;
-                                }
-                            }
-
-                            // We wait for a while before the next connection attempt.
-                            std::thread::sleep(Duration::from_millis(5000));
-                        }
+                        async_pool_thread(
+                            calculation_channels,
+                            receiver_main_to_thread,
+                            sender_thread_to_main,
+                            sender_status_to_main,
+                            devices,
+                        )
+                        .await
                     });
             });
             self.first_scan = false;
@@ -449,22 +243,16 @@ impl eframe::App for ColossalApp {
                 }
             }
         }
-        egui::TopBottomPanel::top("status_panel")
-            .exact_height(20.0)
-            .frame(self.status_bar_frame)
-            .show(ctx, |ui| {
-                ui.vertical_centered_justified(|ui| {
-                    ui.label(
-                        egui::RichText::new(format!("{}", self.thread_status,))
-                            .color(Color32::WHITE),
-                    );
-                });
-            });
-        egui::SidePanel::right("right")
-            .min_width(200.)
-            .show(ctx, |ui| {
-                if let Some(selected_channel_index) = self.tabel_selected_row {}
-            });
+
+        match ui_status_panel(self, ctx) {
+            Ok(_) => {}
+            Err(e) => println!("{e}"),
+        }
+
+        match ui_right_panel(self, ctx) {
+            Ok(_) => {}
+            Err(e) => println!("{e}"),
+        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanel's and SidePanel's
@@ -474,21 +262,99 @@ impl eframe::App for ColossalApp {
                 self.received_device_data = Some(received_device_data);
             }
 
-            self.device_channels_table(ui);
+            match ui_device_channels_table(self, ui) {
+                Ok(_) => {}
+                Err(e) => println!("{e}"),
+            }
         });
     }
 }
 
-fn _powered_by_egui_and_eframe(ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-        ui.label("Powered by ");
-        ui.hyperlink_to("egui", "https://github.com/emilk/egui");
-        ui.label(" and ");
-        ui.hyperlink_to(
-            "eframe",
-            "https://github.com/emilk/egui/tree/master/crates/eframe",
-        );
-        ui.label(".");
-    });
+async fn async_pool_thread(
+    calculation_channels: Vec<CalculationChannel>,
+    mut receiver_main_to_thread: Receiver<ModbusDeviceConfig>,
+    sender_thread_to_main: Sender<ModbusDevice>,
+    sender_status_to_main: Sender<ThreadStatus>,
+    mut devices: Vec<ModbusDevice>,
+) {
+    loop {
+        let ctx = devices[0].connect_to_device().await;
+        match ctx {
+            Ok(mut ctx) => {
+                loop {
+                    //
+                    if let Ok(_msg) = receiver_main_to_thread.try_recv() {
+                        sender_status_to_main
+                            .send(ThreadStatus::Healthy("Config update.".to_owned()))
+                            .await
+                            .unwrap();
+                        println!("Thread received a message");
+                    }
+                    match devices[0].poll(&mut ctx).await {
+                        Ok(_) => {
+                            sender_status_to_main
+                                .send(ThreadStatus::Healthy(format!("Healthy",)))
+                                .await
+                                .unwrap();
+                            match sender_thread_to_main.send(devices[0].clone()).await {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    println!("Sender error: {e}");
+                                    sender_status_to_main
+                                        .send(ThreadStatus::Error(
+                                            "Could not send data back to main.".to_owned(),
+                                        ))
+                                        .await
+                                        .unwrap();
+                                }
+                            }
+                            for channel in &devices[0].channels {
+                                println!("{:?}", channel.value);
+                            }
+                        }
+                        Err(e) => {
+                            println!("{e}");
+                            sender_status_to_main
+                                .send(ThreadStatus::Error(format!("Poll error: {e}")))
+                                .await
+                                .unwrap();
+
+                            break;
+                        }
+                    }
+                    // Evaluate each calculation channel.
+                    for mut channel in calculation_channels.clone() {
+                        // Use the reference to devices so we are sure
+                        // we are working with the updated values from
+                        // the poll function.
+                        match channel.evaluate(&devices) {
+                            Ok(_) => {
+                                println!("Calculation result: {}", channel.value);
+                            }
+                            Err(e) => {
+                                sender_status_to_main
+                                    .send(ThreadStatus::Error(format!(
+                                        "Calculation evaluation error: {e}"
+                                    )))
+                                    .await
+                                    .unwrap();
+                            }
+                        }
+                    }
+                    std::thread::sleep(Duration::from_millis(1000));
+                }
+            }
+            Err(e) => {
+                sender_status_to_main
+                    .send(ThreadStatus::Error(format!("{e}")))
+                    .await
+                    .unwrap();
+                println!("{e}");
+                continue;
+            }
+        }
+
+        // We wait for a while before the next connection attempt.
+        std::thread::sleep(Duration::from_millis(5000));
+    }
 }

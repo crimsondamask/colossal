@@ -21,6 +21,8 @@ pub struct ModbusDeviceBuffer {
     pub id: usize,
     pub code: String,
     pub name: String,
+    pub ip: String,
+    pub port: String,
     pub device_type: ModbusDeviceType,
 }
 
@@ -30,6 +32,8 @@ impl Default for ModbusDeviceBuffer {
             id: 1,
             code: "MB".to_owned(),
             name: "PLC_1".to_owned(),
+            ip: "127.0.0.1".to_owned(),
+            port: "5502".to_owned(),
             device_type: ModbusDeviceType::Tcp,
         }
     }
